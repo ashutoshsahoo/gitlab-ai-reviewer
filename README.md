@@ -5,7 +5,7 @@ GitLab CE, the agent, Redis, Postgres and (optionally) a GitLab Runner run in Do
 on the **host via Ollama**. No code leaves your laptop.
 
 | | |
-|---|---|
+| --- | --- |
 | **Languages reviewed** | Java, Python, JavaScript, TypeScript |
 | **Review dimensions** | correctness, security, performance, concurrency, error handling, maintainability, readability, testing, API design, documentation, style, dependencies, observability |
 | **Output** | inline discussion threads on the changed lines + one summary note + a quality-gate commit status |
@@ -60,6 +60,10 @@ make demo                           # = docker compose exec agent-api python -m 
 
 # 5. Watch the review happen
 make logs                           # then open the MR URL printed by `make demo`
+
+# 6. Clean up environment
+make reset                           # Removed the containers, volumes
+
 ```
 
 GitLab: <http://localhost:8929> (user `root`, password from `.env`, default `ReviewDemo2026Pass`).
@@ -103,7 +107,7 @@ This adds the bot as *Developer*, creates the webhook (merge-request + comment e
 **Key decisions**
 
 | # | Decision | Rationale | Trade-off |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | D1 | Webhook-triggered async worker (FastAPI → Redis/RQ → worker) | Webhooks must return in seconds; LLM reviews take minutes | Extra moving parts (Redis) |
 | D2 | One **sequential** worker | A single local Ollama processes one request at a time; parallelism only adds queueing | Lower throughput |
 | D3 | Ollama on the **host**, not in Compose | Uses the host GPU / Apple Silicon Metal directly; Docker GPU passthrough is painful | Linux needs `OLLAMA_HOST=0.0.0.0` |
@@ -275,7 +279,7 @@ flowchart TB
 ```
 
 | Module | Responsibility |
-|---|---|
+| --- | --- |
 | `webhook.py` | Pure function mapping a payload to a `ReviewRequest`. Reviews only on `open`, `reopen`, and `update` that carries `oldrev` (a push); ignores drafts and the bot's own comments; `/ai-review` forces a re-run. |
 | `queueing.py` | `SET NX` lock per `project:mr:sha` (1 h TTL) prevents duplicate jobs from GitLab's retry behaviour; enqueues to RQ. |
 | `reviewer.py` | The pipeline described in §4.2; owns status updates, error handling and persistence. |
@@ -337,7 +341,7 @@ snapped to the closest added line within ±2; otherwise the finding becomes *unp
 ### 4.5 Idempotency and noise control
 
 | Mechanism | Effect |
-|---|---|
+| --- | --- |
 | Redis lock `project:mr:sha` | One job per commit even if GitLab retries the webhook |
 | DB check (`status=done` for same SHA) | Re-queued jobs exit early (manual `/ai-review` bypasses) |
 | Fingerprint markers in comments | A re-review never posts the same finding twice, even after a resolved thread |
@@ -368,7 +372,7 @@ The gate is computed from **all findings above the confidence threshold** for th
 newly posted ones), so it cannot be bypassed by comment caps or dedup.
 
 | Severity | Default max allowed | Typical examples |
-|---|---|---|
+| --- | --- | --- |
 | critical | 0 | SQL injection, hardcoded production secret, syntax error |
 | high | 0 | Definite bug, shell injection, missing await on a main path |
 | medium | 5 | Risky pattern, swallowed exception, perf problem |
@@ -458,7 +462,7 @@ Connect with: `docker compose exec postgres psql -U reviewer reviewer`.
 All settings are environment variables (see `.env.example`).
 
 | Variable | Default | Meaning |
-|---|---|---|
+| --- | --- | --- |
 | `OLLAMA_URL` | `http://host.docker.internal:11434` | Ollama endpoint reachable from containers |
 | `OLLAMA_MODEL` | `qwen2.5-coder:14b` | Model tag; try `qwen2.5-coder:7b` on small machines |
 | `OLLAMA_NUM_CTX` / `OLLAMA_NUM_PREDICT` | `12288` / `2048` | Context window / max output tokens (keep `MAX_PROMPT_CHARS` ≈ 1.5× below the ctx in chars) |
@@ -512,7 +516,7 @@ gantt
 ```
 
 | Phase | Deliverables | Exit criteria |
-|---|---|---|
+| --- | --- | --- |
 | **P0 Foundation** | Compose stack, host Ollama wiring, bootstrap automation | `make check` all green; webhook reaches the agent |
 | **P1 Review core** | Diff parsing with line mapping, language/ignore filters, chunking, prompts, structured output | Unit tests pass; demo MR yields placed findings |
 | **P2 Publishing and gate** | Inline threads, single summary, fingerprint dedup, commit-status gate, `.ai-review.yml` | Re-review adds no duplicates; failing gate blocks merge |
@@ -529,7 +533,7 @@ reviewer feedback, then raise to `enforce` per repository through `.ai-review.ym
 ## 9. Testing strategy
 
 | Level | What | Where |
-|---|---|---|
+| --- | --- | --- |
 | Unit | Diff parsing and line numbers, chunking, anchoring, JSON normalisation, gate thresholds, webhook routing, fingerprint stability | `agent/tests/test_units.py` |
 | Flow | Full orchestrator run with fake GitLab, fake Ollama and SQLite: inline + summary + status, dedup on re-run, fallback when GitLab rejects a position, error status | `agent/tests/test_flow.py` |
 | Static rules | Semgrep rules + Ruff against `agent/samples/demo` (every file contains deliberate flaws) | run `StaticAnalyzer` on the samples |
@@ -561,7 +565,7 @@ Run the unit and flow tests locally: `make test` (no Docker, no Ollama, no GitLa
 ## 11. Sizing and performance
 
 | Item | Guidance |
-|---|---|
+| --- | --- |
 | RAM | GitLab CE ≈ 4-6 GB (tuned in compose) + model (14B Q4 ≈ 9-10 GB, 7B ≈ 5 GB) |
 | Throughput | Roughly 1 prompt-chunk per 20-90 s for a 14B model on a laptop GPU; a 10-file MR typically takes a few minutes |
 | First request | Slower because the model must load; `keep_alive` is set to 30 minutes |
@@ -575,7 +579,7 @@ Tuning levers: smaller `MAX_PROMPT_CHARS`, `qwen2.5-coder:7b`, fewer files per r
 ## 12. Troubleshooting
 
 | Symptom | Likely cause and fix |
-|---|---|
+| --- | --- |
 | `/healthz` shows `ollama unreachable` | Linux: set `OLLAMA_HOST=0.0.0.0` and restart Ollama; check `curl http://localhost:11434/api/tags` on the host |
 | `/healthz` shows `model ... not pulled` | `ollama pull qwen2.5-coder:14b` (or change `OLLAMA_MODEL`) |
 | Webhook test in GitLab says "URL is blocked: Requests to the local network are not allowed" | Run `bootstrap` (it enables local requests), or *Admin → Settings → Network → Outbound requests* |

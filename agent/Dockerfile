@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.13-slim
 
 ARG INSTALL_SEMGREP=true
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -12,9 +12,9 @@ RUN apt-get update \
 
 WORKDIR /app
 COPY requirements.txt .
+COPY requirements-semgrep.txt .
 RUN pip install -r requirements.txt \
-    && if [ "$INSTALL_SEMGREP" = "true" ]; then pip install semgrep; fi \
-    && pip install "starlette==0.41.3" "fastapi==0.115.6"
+    && if [ "$INSTALL_SEMGREP" = "true" ]; then pip install -r requirements-semgrep.txt; fi
 
 COPY app ./app
 COPY rules ./rules

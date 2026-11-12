@@ -1,0 +1,115 @@
+rules:
+  - id: py-subprocess-shell-true
+    languages: [python]
+    severity: ERROR
+    message: "subprocess call with shell=True allows command injection. Pass an argument list and avoid the shell."
+    pattern: subprocess.$FUNC(..., shell=True, ...)
+    metadata: {category: security}
+
+  - id: py-eval-exec
+    languages: [python]
+    severity: ERROR
+    message: "eval()/exec() on dynamic input allows arbitrary code execution."
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: exec(...)
+    metadata: {category: security}
+
+  - id: py-pickle-loads
+    languages: [python]
+    severity: ERROR
+    message: "pickle deserialization of untrusted data allows arbitrary code execution."
+    pattern-either:
+      - pattern: pickle.loads(...)
+      - pattern: pickle.load(...)
+    metadata: {category: security}
+
+  - id: py-yaml-unsafe-load
+    languages: [python]
+    severity: WARNING
+    message: "yaml.load without SafeLoader can construct arbitrary objects. Use yaml.safe_load."
+    patterns:
+      - pattern: yaml.load($X)
+    metadata: {category: security}
+
+  - id: py-requests-verify-false
+    languages: [python]
+    severity: WARNING
+    message: "TLS certificate verification disabled (verify=False)."
+    pattern: requests.$F(..., verify=False, ...)
+    metadata: {category: security}
+
+  - id: js-eval
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "eval() executes arbitrary code; avoid it with any non-constant input."
+    pattern: eval(...)
+    metadata: {category: security}
+
+  - id: js-innerhtml-assignment
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: "Assigning to innerHTML with dynamic data can cause XSS. Use textContent or sanitize."
+    pattern: $EL.innerHTML = $VALUE
+    metadata: {category: security}
+
+  - id: js-document-write
+    languages: [javascript, typescript]
+    severity: WARNING
+    message: "document.write with dynamic data can cause XSS."
+    pattern: document.write(...)
+    metadata: {category: security}
+
+  - id: js-child-process-exec
+    languages: [javascript, typescript]
+    severity: ERROR
+    message: "child_process.exec runs through a shell; unsanitised input allows command injection. Prefer execFile/spawn with an argument array."
+    pattern: child_process.exec(...)
+    metadata: {category: security}
+
+  - id: java-runtime-exec
+    languages: [java]
+    severity: WARNING
+    message: "Runtime.exec with dynamic input risks command injection."
+    pattern: Runtime.getRuntime().exec(...)
+    metadata: {category: security}
+
+  - id: java-weak-hash
+    languages: [java]
+    severity: WARNING
+    message: "MD5/SHA-1 are cryptographically weak. Use SHA-256 or better (and a KDF for passwords)."
+    pattern-either:
+      - pattern: MessageDigest.getInstance("MD5")
+      - pattern: MessageDigest.getInstance("SHA-1")
+    metadata: {category: security}
+
+  - id: java-sql-string-concat
+    languages: [java]
+    severity: ERROR
+    message: "SQL built by string concatenation is vulnerable to injection. Use PreparedStatement with bound parameters."
+    pattern-either:
+      - pattern: $S.executeQuery($A + $B)
+      - pattern: $S.executeUpdate($A + $B)
+      - pattern: $S.execute($A + $B)
+    metadata: {category: security}
+
+  - id: java-print-stack-trace
+    languages: [java]
+    severity: INFO
+    message: "printStackTrace() bypasses the logging framework. Log the exception with a logger."
+    pattern: $E.printStackTrace()
+    metadata: {category: observability}
+
+  - id: hardcoded-secret
+    languages: [generic]
+    severity: ERROR
+    message: "Possible hardcoded secret. Load credentials from the environment or a secret manager."
+    paths:
+      include:
+        - "*.py"
+        - "*.js"
+        - "*.ts"
+        - "*.tsx"
+        - "*.java"
+    pattern-regex: '(?i)(password|passwd|secret|api[_-]?key|access[_-]?token)\s*[:=]\s*["''][^"'']{8,}["'']'
+    metadata: {category: security}

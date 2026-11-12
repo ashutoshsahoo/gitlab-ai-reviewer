@@ -1,0 +1,21 @@
+# Example pipeline for a project that uses the runner. Copy to .gitlab-ci.yml.
+# The AI review shows up next to these jobs as the commit status "ai-code-review".
+stages: [lint, test]
+
+lint-python:
+  stage: lint
+  image: python:3.12-slim
+  script:
+    - pip install ruff
+    - ruff check .
+  rules:
+    - exists: ["**/*.py"]
+
+test-python:
+  stage: test
+  image: python:3.12-slim
+  script:
+    - pip install pytest
+    - pytest -q || test $? -eq 5   # exit code 5 = no tests collected
+  rules:
+    - exists: ["**/*.py"]

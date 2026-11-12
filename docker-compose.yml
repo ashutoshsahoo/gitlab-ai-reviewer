@@ -1,0 +1,130 @@
+# GitLab CE AI Code Review Agent - local POC stack
+# Ollama is NOT part of this file: it runs directly on your machine (see README).
+name: ai-review
+
+x-agent-env: &agent-env
+  GITLAB_URL: http://gitlab:8929
+  REDIS_URL: redis://redis:6379/0
+  DATABASE_URL: postgresql+psycopg://reviewer:${POSTGRES_PASSWORD:-reviewer}@postgres:5432/reviewer
+
+x-agent-common: &agent-common
+  build:
+    context: ./agent
+    args:
+      INSTALL_SEMGREP: ${INSTALL_SEMGREP:-true}
+  image: ai-review-agent:local
+  env_file: .env
+  environment: *agent-env
+  extra_hosts:
+    - "host.docker.internal:host-gateway" # reach Ollama on the host (needed on Linux)
+  depends_on:
+    postgres:
+      condition: service_healthy
+    redis:
+      condition: service_healthy
+  networks: [ai-review-net]
+  restart: unless-stopped
+
+services:
+  gitlab:
+    image: gitlab/gitlab-ce:${GITLAB_IMAGE_TAG:-latest} # pin a version once the POC works
+    container_name: ai-review-gitlab
+    hostname: gitlab
+    restart: unless-stopped
+    shm_size: 256m
+    ports:
+      - "${GITLAB_PORT:-8929}:8929"
+      - "${GITLAB_SSH_PORT:-2224}:22"
+    environment:
+      GITLAB_ROOT_PASSWORD: ${GITLAB_ROOT_PASSWORD:-ReviewDemo2026Pass}
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'http://localhost:${GITLAB_PORT:-8929}'
+        gitlab_rails['gitlab_shell_ssh_port'] = ${GITLAB_SSH_PORT:-2224}
+        gitlab_rails['usage_ping_enabled'] = false
+        puma['worker_processes'] = 0
+        sidekiq['concurrency'] = 10
+        prometheus_monitoring['enable'] = false
+    volumes:
+      - gitlab-config:/etc/gitlab
+      - gitlab-logs:/var/log/gitlab
+      - gitlab-data:/var/opt/gitlab
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://localhost:${GITLAB_PORT:-8929}/users/sign_in"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 300s
+    networks:
+      ai-review-net:
+        aliases: [gitlab]
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: ai-review-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: reviewer
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-reviewer}
+      POSTGRES_DB: reviewer
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U reviewer -d reviewer"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [ai-review-net]
+
+  redis:
+    image: redis:7-alpine
+    container_name: ai-review-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [ai-review-net]
+
+  agent-api:
+    <<: *agent-common
+    container_name: ai-review-agent-api
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+    ports:
+      - "${AGENT_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/livez')"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  agent-worker:
+    <<: *agent-common
+    container_name: ai-review-agent-worker
+    # One worker on purpose: a single local Ollama processes one request at a time.
+    command: ["rq", "worker", "reviews", "--url", "redis://redis:6379/0"]
+
+  gitlab-runner:
+    image: gitlab/gitlab-runner:latest
+    container_name: ai-review-runner
+    profiles: ["ci"] # start with: docker compose --profile ci up -d
+    restart: unless-stopped
+    volumes:
+      - runner-config:/etc/gitlab-runner
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [ai-review-net]
+
+networks:
+  ai-review-net:
+    name: ai-review-net
+
+volumes:
+  gitlab-config:
+  gitlab-logs:
+  gitlab-data:
+  postgres-data:
+  redis-data:
+  runner-config:

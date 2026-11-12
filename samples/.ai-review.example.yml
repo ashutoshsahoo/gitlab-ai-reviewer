@@ -1,0 +1,15 @@
+# Optional per-repository configuration. Place at the repo root as `.ai-review.yml`.
+ignore:                      # glob patterns (fnmatch) of files the agent must not review
+  - "src/legacy/*"
+  - "**/*.generated.ts"
+
+instructions: |              # extra guidance injected into every prompt
+  We use Spring Boot 3 and Java 21. Prefer records for DTOs.
+  All public REST endpoints must validate input and check authorization.
+  Python code must be type-hinted and use `logging`, never print().
+
+gate:                        # override the default quality-gate thresholds for this repo
+  max_critical: 0
+  max_high: 1
+  max_medium: 8
+  mode: enforce              # enforce | advisory
